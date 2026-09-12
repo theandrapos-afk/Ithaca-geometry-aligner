@@ -3,7 +3,7 @@
 <head>
 <meta charset="utf-8">
 <meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover, user-scalable=no">
-<title>Ithaca Tablet Geometry Aligner v2</title>
+<title>Ithaca Tablet Geometry Aligner v3</title>
 <style>
   :root {
     --bg:#111;
@@ -17,12 +17,20 @@
     --line:#2c2c2e;
   }
   * { box-sizing:border-box; -webkit-tap-highlight-color:transparent; }
-  body {
-    margin:0; background:var(--bg); color:var(--text);
+  html, body {
+    margin:0; width:100%; height:100%;
+    background:var(--bg); color:var(--text);
     font-family:-apple-system,BlinkMacSystemFont,"Segoe UI",Roboto,Arial,sans-serif;
     overscroll-behavior:none;
+    overflow:hidden;
   }
-  #app { min-height:100vh; display:flex; flex-direction:column; }
+  #app {
+    height:100vh;
+    height:100dvh;
+    display:flex;
+    flex-direction:column;
+    overflow:hidden;
+  }
   header {
     position:sticky; top:0; z-index:10;
     background:rgba(28,28,30,.97); border-bottom:1px solid var(--line);
@@ -50,18 +58,26 @@
     margin-top:8px; color:var(--muted); font-size:14px; line-height:1.3;
   }
   #stageWrap {
-    flex:1; min-height:0; position:relative; overflow:hidden;
+    flex:1 1 auto;
+    min-height:120px;
+    position:relative;
+    overflow:hidden;
     background:#262626;
     touch-action:none;
   }
   canvas { width:100%; height:100%; display:block; touch-action:none; }
   #controls {
-    background:var(--panel); border-top:1px solid var(--line);
-    padding:10px 12px calc(12px + env(safe-area-inset-bottom));
+    flex:0 0 auto;
+    background:var(--panel);
+    border-top:1px solid var(--line);
+    padding:7px 10px calc(8px + env(safe-area-inset-bottom));
+    max-height:38vh;
+    overflow:auto;
+    -webkit-overflow-scrolling:touch;
   }
   .group {
-    border:1px solid #3a3a3c; border-radius:12px; padding:9px;
-    margin-top:8px;
+    border:1px solid #3a3a3c; border-radius:10px; padding:6px;
+    margin-top:5px;
   }
   .groupTitle { color:var(--muted); font-size:13px; margin-bottom:7px; }
   .spacer { flex:1; }
@@ -75,10 +91,16 @@
   #fileInput { display:none; }
   .small { font-size:13px; color:var(--muted); }
   @media (orientation:landscape) {
-    header { padding:7px 10px; }
-    #controls { padding:7px 10px calc(8px + env(safe-area-inset-bottom)); }
-    button { min-height:40px; padding:7px 11px; }
-    .group { padding:7px; margin-top:6px; }
+    header { padding:5px 8px; }
+    #status { margin-top:4px; font-size:12px; }
+    #controls {
+      padding:5px 8px calc(6px + env(safe-area-inset-bottom));
+      max-height:33vh;
+    }
+    button { min-height:36px; padding:5px 9px; font-size:14px; }
+    input[type=number] { min-height:36px; }
+    .group { padding:4px; margin-top:4px; }
+    .groupTitle { margin-bottom:4px; font-size:12px; }
   }
 </style>
 </head>
@@ -99,7 +121,7 @@
     <button id="skipBtn" class="warn">Skip</button>
     <button id="saveNextBtn" class="primary">Save & Next</button>
   </div>
-  <div id="status">Choose JPG/PNG page images to begin. v2</div>
+  <div id="status">Choose JPG/PNG page images to begin. v3</div>
 </header>
 
 <div id="stageWrap">
@@ -107,6 +129,9 @@
 </div>
 
 <div id="controls">
+  <div class="small" style="font-weight:700;color:#fff;margin:0 0 3px 2px;">
+    Alignment controls — always visible below the image
+  </div>
   <div class="group">
     <div class="groupTitle">Selected cell adjustment</div>
     <div class="row">
@@ -137,7 +162,8 @@
       <button id="resetCase">Reset case</button>
       <label class="small">Zoom</label>
       <input id="zoomSlider" type="range" min="0.75" max="2.4" value="1" step="0.05">
-      <button id="exportBtn">Export Geometry</button>
+      <button id="exportJsonBtn" class="good">Save JSON</button>
+      <button id="exportCsvBtn">Save CSV</button>
     </div>
   </div>
 </div>
@@ -188,7 +214,7 @@ const state = {
 
 function setStatus(extra="") {
   if (!state.img) {
-    $("status").textContent = "Choose JPG/PNG page images to begin. v2";
+    $("status").textContent = "Choose JPG/PNG page images to begin. v3";
     return;
   }
   const a = ["R1C1","R1C5","R10C1","R10C5"];
@@ -471,8 +497,8 @@ function naturalCompare(a,b) {
 async function loadCurrent() {
   if (!state.files.length) return;
   if (state.fileIndex>=state.files.length) {
-    setStatus("finished — export geometry");
-    exportGeometry();
+    setStatus("finished — tap Save JSON and/or Save CSV below");
+    alert("All selected pages are complete. Use the visible Save JSON or Save CSV buttons below.");
     return;
   }
   const file=state.files[state.fileIndex];
@@ -647,18 +673,62 @@ function downloadBlob(name,text,type) {
   const blob=new Blob([text],{type});
   const url=URL.createObjectURL(blob);
   const a=document.createElement("a");
-  a.href=url;a.download=name;document.body.appendChild(a);a.click();a.remove();
-  setTimeout(()=>URL.revokeObjectURL(url),2000);
+  a.href=url;
+  a.download=name;
+  document.body.appendChild(a);
+  a.click();
+  a.remove();
+  setTimeout(()=>URL.revokeObjectURL(url),3000);
 }
-function exportGeometry() {
-  if (!state.records.length) return alert("No saved case geometry yet.");
-  downloadBlob("ithaca_case_geometry.json",JSON.stringify(state.records,null,2),"application/json");
-  if (state.cells.length) {
-    setTimeout(()=>downloadBlob("ithaca_cell_geometry.csv",cellsToCSV(),"text/csv"),400);
+
+async function saveOrShareFile(name,text,type) {
+  const file=new File([text],name,{type});
+  try {
+    if (navigator.share && navigator.canShare && navigator.canShare({files:[file]})) {
+      await navigator.share({
+        files:[file],
+        title:name
+      });
+      setStatus(`${name} shared/saved`);
+      return;
+    }
+  } catch(err) {
+    if (err && err.name==="AbortError") {
+      setStatus("save cancelled");
+      return;
+    }
+    // Fall through to normal browser download.
   }
-  setStatus("exported");
+  downloadBlob(name,text,type);
+  setStatus(`${name} download requested`);
 }
-$("exportBtn").onclick=exportGeometry;
+
+async function exportJson() {
+  if (!state.records.length) return alert("No saved case geometry yet.");
+  const payload={
+    format:"ithaca-geometry-v3",
+    exported_at:new Date().toISOString(),
+    cases:state.records,
+    cells:state.cells
+  };
+  await saveOrShareFile(
+    "ithaca_geometry.json",
+    JSON.stringify(payload,null,2),
+    "application/json"
+  );
+}
+
+async function exportCsv() {
+  if (!state.cells.length) return alert("No saved cell geometry yet.");
+  await saveOrShareFile(
+    "ithaca_cell_geometry.csv",
+    cellsToCSV(),
+    "text/csv"
+  );
+}
+
+$("exportJsonBtn").onclick=exportJson;
+$("exportCsvBtn").onclick=exportCsv;
 
 function saveLocalBackup() {
   try {
