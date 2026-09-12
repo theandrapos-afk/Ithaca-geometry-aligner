@@ -1,0 +1,618 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover, user-scalable=no">
+<title>Ithaca Tablet Geometry Aligner</title>
+<style>
+  :root {
+    --bg:#111;
+    --panel:#1c1c1e;
+    --text:#f5f5f7;
+    --muted:#b8b8bd;
+    --accent:#38d96b;
+    --select:#ffd60a;
+    --danger:#ff453a;
+    --blue:#0a84ff;
+    --line:#2c2c2e;
+  }
+  * { box-sizing:border-box; -webkit-tap-highlight-color:transparent; }
+  body {
+    margin:0; background:var(--bg); color:var(--text);
+    font-family:-apple-system,BlinkMacSystemFont,"Segoe UI",Roboto,Arial,sans-serif;
+    overscroll-behavior:none;
+  }
+  #app { min-height:100vh; display:flex; flex-direction:column; }
+  header {
+    position:sticky; top:0; z-index:10;
+    background:rgba(28,28,30,.97); border-bottom:1px solid var(--line);
+    padding:10px 12px;
+  }
+  .row { display:flex; flex-wrap:wrap; gap:8px; align-items:center; }
+  button, input {
+    font:inherit;
+  }
+  button {
+    min-height:44px; padding:9px 13px; border:0; border-radius:10px;
+    background:#3a3a3c; color:white; font-weight:700;
+  }
+  button.primary { background:var(--blue); }
+  button.good { background:#218c4d; }
+  button.warn { background:#9a6700; }
+  button.danger { background:#8b2b27; }
+  button:disabled { opacity:.45; }
+  input[type=number] {
+    width:88px; min-height:44px; background:#2c2c2e; color:white;
+    border:1px solid #4b4b4f; border-radius:9px; padding:8px;
+  }
+  input[type=range] { width:150px; }
+  #status {
+    margin-top:8px; color:var(--muted); font-size:14px; line-height:1.3;
+  }
+  #stageWrap {
+    flex:1; min-height:0; position:relative; overflow:hidden;
+    background:#262626;
+    touch-action:none;
+  }
+  canvas { width:100%; height:100%; display:block; touch-action:none; }
+  #controls {
+    background:var(--panel); border-top:1px solid var(--line);
+    padding:10px 12px calc(12px + env(safe-area-inset-bottom));
+  }
+  .group {
+    border:1px solid #3a3a3c; border-radius:12px; padding:9px;
+    margin-top:8px;
+  }
+  .groupTitle { color:var(--muted); font-size:13px; margin-bottom:7px; }
+  .spacer { flex:1; }
+  .pill {
+    display:inline-block; padding:4px 8px; border-radius:999px;
+    background:#2c2c2e; color:var(--muted); font-size:12px;
+  }
+  .anchorPrompt {
+    color:#fff; font-weight:800; margin-left:6px;
+  }
+  #fileInput { display:none; }
+  .small { font-size:13px; color:var(--muted); }
+  @media (orientation:landscape) {
+    header { padding:7px 10px; }
+    #controls { padding:7px 10px calc(8px + env(safe-area-inset-bottom)); }
+    button { min-height:40px; padding:7px 11px; }
+    .group { padding:7px; margin-top:6px; }
+  }
+</style>
+</head>
+<body>
+<div id="app">
+<header>
+  <div class="row">
+    <button id="chooseBtn" class="primary">Choose Page Images</button>
+    <input id="fileInput" type="file" accept="image/png,image/jpeg,image/webp,.png,.jpg,.jpeg,.webp" multiple>
+    <label>Start case</label>
+    <input id="startCase" type="number" value="1049" min="1">
+    <button id="applyCaseBtn">Apply</button>
+    <button id="anchorBtn" class="good">Set 4 Anchors</button>
+    <button id="enhanceBtn">Enhance</button>
+    <span class="spacer"></span>
+    <button id="prevBtn">Previous</button>
+    <button id="skipBtn" class="warn">Skip</button>
+    <button id="saveNextBtn" class="primary">Save & Next</button>
+  </div>
+  <div id="status">Choose JPG/PNG page images to begin.</div>
+</header>
+
+<div id="stageWrap">
+  <canvas id="canvas"></canvas>
+</div>
+
+<div id="controls">
+  <div class="group">
+    <div class="groupTitle">Selected cell adjustment</div>
+    <div class="row">
+      <button id="rowUp">Row ↑</button>
+      <button id="rowDown">Row ↓</button>
+      <button id="colLeft">Column ←</button>
+      <button id="colRight">Column →</button>
+      <span class="pill" id="selectedLabel">No cell selected</span>
+    </div>
+  </div>
+
+  <div class="group">
+    <div class="groupTitle">Recognition box size</div>
+    <div class="row">
+      <button id="narrowBtn">Narrower</button>
+      <button id="widerBtn">Wider</button>
+      <button id="shorterBtn">Shorter</button>
+      <button id="tallerBtn">Taller</button>
+      <span class="small" id="boxLabel"></span>
+    </div>
+  </div>
+
+  <div class="group">
+    <div class="groupTitle">View / case positioning</div>
+    <div class="row">
+      <button id="caseUp">Case ↑</button>
+      <button id="caseDown">Case ↓</button>
+      <button id="resetCase">Reset case</button>
+      <label class="small">Zoom</label>
+      <input id="zoomSlider" type="range" min="0.75" max="2.4" value="1" step="0.05">
+      <button id="exportBtn">Export Geometry</button>
+    </div>
+  </div>
+</div>
+</div>
+
+<script>
+(() => {
+"use strict";
+
+const CASE_TOP_FRACS = [0.147, 0.322, 0.497, 0.674];
+const ROW_PITCH_FRAC = 29.0 / 2338.0;
+const LEFT_X_FRAC = 0.489;
+const RIGHT_X_FRAC = 0.837;
+
+const $ = id => document.getElementById(id);
+const canvas = $("canvas");
+const ctx = canvas.getContext("2d", { alpha:false });
+const stageWrap = $("stageWrap");
+
+const state = {
+  files: [],
+  fileIndex: 0,
+  caseSlot: 0,
+  caseNumber: 1049,
+  img: null,
+  imageName: "",
+  cropShiftY: 0,
+  anchors: [null,null,null,null], // local crop coordinates
+  anchorMode: false,
+  anchorStep: 0,
+  rowOffsets: Array(10).fill(0),
+  colOffsets: Array(5).fill(0),
+  selected: null,
+  boxWFrac: 0.90,
+  boxHFrac: 0.82,
+  enhanced: false,
+  zoom: 1,
+  panX: 0,
+  panY: 0,
+  records: [],
+  cells: [],
+  activeCrop: null,
+  view: null,
+  dragging: false,
+  lastPointer: null
+};
+
+function setStatus(extra="") {
+  if (!state.img) {
+    $("status").textContent = "Choose JPG/PNG page images to begin.";
+    return;
+  }
+  const a = ["R1C1","R1C5","R10C1","R10C5"];
+  const prompt = state.anchorMode ? ` — tap ${a[state.anchorStep]} center` : "";
+  $("status").innerHTML =
+    `Page <b>${state.fileIndex+1}/${state.files.length}</b>: ${escapeHtml(state.imageName)} — ` +
+    `Case <b>${state.caseNumber}</b> (slot ${state.caseSlot+1}/4)` +
+    `${state.enhanced ? " — enhanced" : ""}${prompt}${extra ? " — "+extra : ""}`;
+}
+
+function escapeHtml(s) {
+  return String(s).replace(/[&<>"']/g, c => ({"&":"&amp;","<":"&lt;",">":"&gt;","\"":"&quot;","'":"&#39;"}[c]));
+}
+
+function resizeCanvas() {
+  const rect = stageWrap.getBoundingClientRect();
+  const dpr = Math.min(window.devicePixelRatio || 1, 2);
+  canvas.width = Math.max(1, Math.round(rect.width * dpr));
+  canvas.height = Math.max(1, Math.round(rect.height * dpr));
+  canvas.style.width = rect.width+"px";
+  canvas.style.height = rect.height+"px";
+  ctx.setTransform(dpr,0,0,dpr,0,0);
+  draw();
+}
+
+window.addEventListener("resize", resizeCanvas);
+window.addEventListener("orientationchange", () => setTimeout(resizeCanvas, 200));
+
+function currentCrop() {
+  if (!state.img) return null;
+  const w = state.img.naturalWidth, h = state.img.naturalHeight;
+  const slot = Math.max(0, Math.min(3, state.caseSlot));
+  const yTop = CASE_TOP_FRACS[slot]*h + state.cropShiftY;
+  const yBottom = (CASE_TOP_FRACS[slot] + 9*ROW_PITCH_FRAC)*h + state.cropShiftY;
+  const x0 = Math.max(0, Math.round(0.39*w));
+  const x1 = Math.min(w, Math.round(0.94*w));
+  const y0 = Math.max(0, Math.round(yTop - 0.055*h));
+  const y1 = Math.min(h, Math.round(yBottom + 0.055*h));
+  return {x0,y0,x1,y1,w:x1-x0,h:y1-y0};
+}
+
+function seedAnchors() {
+  if (!state.img) return;
+  const crop = currentCrop();
+  const w=state.img.naturalWidth, h=state.img.naturalHeight;
+  const topY=CASE_TOP_FRACS[state.caseSlot]*h + state.cropShiftY;
+  const botY=(CASE_TOP_FRACS[state.caseSlot]+9*ROW_PITCH_FRAC)*h + state.cropShiftY;
+  const leftX=LEFT_X_FRAC*w;
+  const rightX=RIGHT_X_FRAC*w;
+  state.anchors = [
+    [leftX-crop.x0, topY-crop.y0],
+    [rightX-crop.x0, topY-crop.y0],
+    [leftX-crop.x0, botY-crop.y0],
+    [rightX-crop.x0, botY-crop.y0]
+  ];
+}
+
+function resetCase() {
+  state.cropShiftY=0;
+  state.rowOffsets=Array(10).fill(0);
+  state.colOffsets=Array(5).fill(0);
+  state.selected=null;
+  state.anchorMode=false;
+  state.anchorStep=0;
+  state.zoom=1;
+  state.panX=0;
+  state.panY=0;
+  $("zoomSlider").value="1";
+  seedAnchors();
+  updateLabels();
+  draw();
+}
+
+function bilinear(tl,tr,bl,br,u,v) {
+  const x=(1-u)*(1-v)*tl[0] + u*(1-v)*tr[0] + (1-u)*v*bl[0] + u*v*br[0];
+  const y=(1-u)*(1-v)*tl[1] + u*(1-v)*tr[1] + (1-u)*v*bl[1] + u*v*br[1];
+  return [x,y];
+}
+
+function localGrid() {
+  if (state.anchors.some(a => !a)) return null;
+  const [tl,tr,bl,br]=state.anchors;
+  const g=[];
+  for (let r=0;r<10;r++) {
+    const row=[];
+    for (let c=0;c<5;c++) {
+      const [x0,y0]=bilinear(tl,tr,bl,br,c/4,r/9);
+      row.push([x0+state.colOffsets[c], y0+state.rowOffsets[r]]);
+    }
+    g.push(row);
+  }
+  return g;
+}
+
+function spacing(grid,r,c) {
+  let hs,vs;
+  if (c<4) hs=Math.hypot(grid[r][c+1][0]-grid[r][c][0],grid[r][c+1][1]-grid[r][c][1]);
+  else hs=Math.hypot(grid[r][c][0]-grid[r][c-1][0],grid[r][c][1]-grid[r][c-1][1]);
+  if (r<9) vs=Math.hypot(grid[r+1][c][0]-grid[r][c][0],grid[r+1][c][1]-grid[r][c][1]);
+  else vs=Math.hypot(grid[r][c][0]-grid[r-1][c][0],grid[r][c][1]-grid[r-1][c][1]);
+  return [hs,vs];
+}
+
+function draw() {
+  const rect=stageWrap.getBoundingClientRect();
+  ctx.save();
+  ctx.setTransform(window.devicePixelRatio>2?2:(window.devicePixelRatio||1),0,0,window.devicePixelRatio>2?2:(window.devicePixelRatio||1),0,0);
+  ctx.fillStyle="#262626";
+  ctx.fillRect(0,0,rect.width,rect.height);
+
+  if (!state.img) { ctx.restore(); return; }
+
+  const crop=currentCrop();
+  state.activeCrop=crop;
+
+  const fit=Math.min(rect.width/crop.w, rect.height/crop.h);
+  const scale=fit*state.zoom;
+  const dw=crop.w*scale, dh=crop.h*scale;
+  const ox=(rect.width-dw)/2 + state.panX;
+  const oy=(rect.height-dh)/2 + state.panY;
+  state.view={scale,ox,oy};
+
+  // Image
+  if (!state.enhanced) {
+    ctx.filter="none";
+  } else {
+    ctx.filter="contrast(1.55) grayscale(1)";
+  }
+  ctx.drawImage(state.img,crop.x0,crop.y0,crop.w,crop.h,ox,oy,dw,dh);
+  ctx.filter="none";
+
+  const grid=localGrid();
+  if (grid) {
+    for (let r=0;r<10;r++) {
+      for (let c=0;c<5;c++) {
+        const [hs,vs]=spacing(grid,r,c);
+        const bw=Math.max(40,hs*state.boxWFrac);
+        const bh=Math.max(14,vs*state.boxHFrac);
+        const [x,y]=grid[r][c];
+        const sx=ox+x*scale, sy=oy+y*scale;
+        const selected=state.selected && state.selected[0]===r && state.selected[1]===c;
+        ctx.strokeStyle=selected?"#ffd60a":"#38d96b";
+        ctx.lineWidth=selected?3:1.5;
+        ctx.strokeRect(sx-bw*scale/2,sy-bh*scale/2,bw*scale,bh*scale);
+        ctx.fillStyle="#ff453a";
+        ctx.beginPath(); ctx.arc(sx,sy,2.5,0,Math.PI*2); ctx.fill();
+      }
+    }
+    const labels=["TL","TR","BL","BR"];
+    state.anchors.forEach((a,i) => {
+      if (!a) return;
+      const sx=ox+a[0]*scale, sy=oy+a[1]*scale;
+      ctx.fillStyle="#0a84ff";
+      ctx.beginPath(); ctx.arc(sx,sy,7,0,Math.PI*2); ctx.fill();
+      ctx.strokeStyle="white"; ctx.lineWidth=1.5; ctx.stroke();
+      ctx.fillStyle="white"; ctx.font="bold 13px -apple-system, sans-serif";
+      ctx.fillText(labels[i],sx+10,sy-10);
+    });
+  }
+
+  if (state.anchorMode) {
+    ctx.fillStyle="rgba(0,0,0,.67)";
+    ctx.fillRect(8,8,260,42);
+    ctx.fillStyle="#fff";
+    ctx.font="bold 16px -apple-system, sans-serif";
+    const prompts=["Tap R1C1 center","Tap R1C5 center","Tap R10C1 center","Tap R10C5 center"];
+    ctx.fillText(prompts[state.anchorStep],18,35);
+  }
+  ctx.restore();
+}
+
+function canvasToLocal(clientX,clientY) {
+  if (!state.view) return null;
+  const rect=canvas.getBoundingClientRect();
+  const x=clientX-rect.left, y=clientY-rect.top;
+  return [(x-state.view.ox)/state.view.scale,(y-state.view.oy)/state.view.scale];
+}
+
+canvas.addEventListener("pointerdown", e => {
+  if (!state.img) return;
+  canvas.setPointerCapture(e.pointerId);
+  state.dragging=true;
+  state.lastPointer=[e.clientX,e.clientY];
+
+  const local=canvasToLocal(e.clientX,e.clientY);
+  if (!local) return;
+  const [lx,ly]=local;
+
+  if (state.anchorMode) {
+    if (lx>=0 && ly>=0 && lx<=state.activeCrop.w && ly<=state.activeCrop.h) {
+      state.anchors[state.anchorStep]=[lx,ly];
+      state.anchorStep++;
+      if (state.anchorStep>=4) {
+        state.anchorMode=false;
+        state.anchorStep=0;
+        setStatus("anchors set");
+      }
+      draw();
+    }
+    return;
+  }
+
+  const grid=localGrid();
+  if (!grid) return;
+  let best=Infinity, nearest=null;
+  for (let r=0;r<10;r++) for (let c=0;c<5;c++) {
+    const d=(grid[r][c][0]-lx)**2+(grid[r][c][1]-ly)**2;
+    if (d<best) {best=d; nearest=[r,c];}
+  }
+  state.selected=nearest;
+  updateLabels();
+  draw();
+});
+
+canvas.addEventListener("pointermove", e => {
+  if (!state.dragging || state.anchorMode || !state.lastPointer) return;
+  if (e.pointerType==="touch" && e.isPrimary) {
+    // A small drag pans only if movement is clearly larger than a tap.
+    const dx=e.clientX-state.lastPointer[0], dy=e.clientY-state.lastPointer[1];
+    if (Math.abs(dx)+Math.abs(dy)>4) {
+      state.panX+=dx; state.panY+=dy;
+      state.lastPointer=[e.clientX,e.clientY];
+      draw();
+    }
+  }
+});
+canvas.addEventListener("pointerup", e => { state.dragging=false; state.lastPointer=null; });
+canvas.addEventListener("pointercancel", e => { state.dragging=false; state.lastPointer=null; });
+
+$("chooseBtn").onclick=()=>$("fileInput").click();
+
+$("fileInput").addEventListener("change", async e => {
+  state.files=[...e.target.files].sort((a,b)=>naturalCompare(a.name,b.name));
+  if (!state.files.length) return;
+  state.fileIndex=0; state.caseSlot=0;
+  state.caseNumber=parseInt($("startCase").value||"1",10);
+  state.records=[]; state.cells=[];
+  await loadCurrent();
+});
+
+function naturalCompare(a,b) {
+  return a.localeCompare(b,undefined,{numeric:true,sensitivity:"base"});
+}
+
+async function loadCurrent() {
+  if (!state.files.length) return;
+  if (state.fileIndex>=state.files.length) {
+    setStatus("finished — export geometry");
+    exportGeometry();
+    return;
+  }
+  const file=state.files[state.fileIndex];
+  const url=URL.createObjectURL(file);
+  const img=new Image();
+  img.onload=() => {
+    state.img=img;
+    state.imageName=file.name;
+    state.cropShiftY=0;
+    state.rowOffsets=Array(10).fill(0);
+    state.colOffsets=Array(5).fill(0);
+    state.selected=null;
+    state.anchorMode=false; state.anchorStep=0;
+    state.zoom=1; state.panX=0; state.panY=0;
+    $("zoomSlider").value="1";
+    seedAnchors();
+    setStatus();
+    updateLabels();
+    resizeCanvas();
+    setTimeout(()=>URL.revokeObjectURL(url),5000);
+  };
+  img.onerror=() => {
+    alert("This browser could not open "+file.name+". On iPad, use JPG or PNG copies rather than TIFF.");
+    URL.revokeObjectURL(url);
+  };
+  img.src=url;
+}
+
+$("applyCaseBtn").onclick=() => {
+  const n=parseInt($("startCase").value||"",10);
+  if (!Number.isFinite(n)) return alert("Enter a valid case number.");
+  state.caseNumber=n;
+  setStatus();
+};
+
+$("anchorBtn").onclick=() => {
+  if (!state.img) return;
+  state.anchorMode=true;
+  state.anchorStep=0;
+  setStatus();
+  draw();
+};
+
+$("enhanceBtn").onclick=() => {state.enhanced=!state.enhanced; setStatus(); draw();};
+
+function nudgeRow(d) {
+  if (!state.selected) return;
+  state.rowOffsets[state.selected[0]]+=d;
+  draw();
+}
+function nudgeCol(d) {
+  if (!state.selected) return;
+  state.colOffsets[state.selected[1]]+=d;
+  draw();
+}
+$("rowUp").onclick=()=>nudgeRow(-1);
+$("rowDown").onclick=()=>nudgeRow(+1);
+$("colLeft").onclick=()=>nudgeCol(-1);
+$("colRight").onclick=()=>nudgeCol(+1);
+
+$("narrowBtn").onclick=()=>{state.boxWFrac=Math.max(.55,state.boxWFrac-.03); updateLabels(); draw();};
+$("widerBtn").onclick=()=>{state.boxWFrac=Math.min(1.18,state.boxWFrac+.03); updateLabels(); draw();};
+$("shorterBtn").onclick=()=>{state.boxHFrac=Math.max(.45,state.boxHFrac-.03); updateLabels(); draw();};
+$("tallerBtn").onclick=()=>{state.boxHFrac=Math.min(1.15,state.boxHFrac+.03); updateLabels(); draw();};
+
+$("caseUp").onclick=()=>{state.cropShiftY-=12; seedAnchors(); draw();};
+$("caseDown").onclick=()=>{state.cropShiftY+=12; seedAnchors(); draw();};
+$("resetCase").onclick=resetCase;
+
+$("zoomSlider").oninput=e=>{state.zoom=parseFloat(e.target.value); draw();};
+
+function updateLabels() {
+  $("selectedLabel").textContent=state.selected ? `R${state.selected[0]+1}C${state.selected[1]+1}` : "No cell selected";
+  $("boxLabel").textContent=`width ${state.boxWFrac.toFixed(2)} × column; height ${state.boxHFrac.toFixed(2)} × row`;
+}
+
+function saveCurrent(status="aligned") {
+  if (!state.img) return;
+  const crop=currentCrop();
+  const globalAnchors=state.anchors.map(a=>a?[+(a[0]+crop.x0).toFixed(2), +(a[1]+crop.y0).toFixed(2)]:null);
+  state.records.push({
+    source_file:state.imageName,
+    page_index:state.fileIndex,
+    case_slot:state.caseSlot+1,
+    case_number:state.caseNumber,
+    status,
+    crop_shift_y_px:state.cropShiftY,
+    crop_box:[crop.x0,crop.y0,crop.x1,crop.y1],
+    anchors_global:globalAnchors,
+    row_offsets_px:state.rowOffsets.map(v=>+v.toFixed(2)),
+    col_offsets_px:state.colOffsets.map(v=>+v.toFixed(2)),
+    box_width_fraction:+state.boxWFrac.toFixed(3),
+    box_height_fraction:+state.boxHFrac.toFixed(3)
+  });
+
+  if (status==="aligned") {
+    const grid=localGrid();
+    if (grid) {
+      for (let r=0;r<10;r++) for (let c=0;c<5;c++) {
+        const [hs,vs]=spacing(grid,r,c);
+        const bw=Math.max(40,hs*state.boxWFrac);
+        const bh=Math.max(14,vs*state.boxHFrac);
+        const gx=grid[r][c][0]+crop.x0, gy=grid[r][c][1]+crop.y0;
+        state.cells.push({
+          source_file:state.imageName,
+          page_index:state.fileIndex,
+          case_slot:state.caseSlot+1,
+          case_number:state.caseNumber,
+          row:r+1,column:c+1,
+          center_x:+gx.toFixed(2), center_y:+gy.toFixed(2),
+          crop_x0:+(gx-bw/2).toFixed(2), crop_y0:+(gy-bh/2).toFixed(2),
+          crop_x1:+(gx+bw/2).toFixed(2), crop_y1:+(gy+bh/2).toFixed(2)
+        });
+      }
+    }
+  }
+  saveLocalBackup();
+}
+
+async function advance() {
+  state.caseNumber++;
+  $("startCase").value=state.caseNumber;
+  state.caseSlot++;
+  if (state.caseSlot>=4) {state.caseSlot=0; state.fileIndex++;}
+  await loadCurrent();
+}
+
+$("saveNextBtn").onclick=async()=>{saveCurrent("aligned"); await advance();};
+$("skipBtn").onclick=async()=>{saveCurrent("skipped"); await advance();};
+
+$("prevBtn").onclick=async()=>{
+  if (!state.img) return;
+  state.caseNumber=Math.max(1,state.caseNumber-1);
+  $("startCase").value=state.caseNumber;
+  if (state.caseSlot>0) state.caseSlot--;
+  else if (state.fileIndex>0) {state.fileIndex--;state.caseSlot=3;}
+  await loadCurrent();
+};
+
+function csvEscape(v) {
+  const s=String(v??"");
+  return /[",\n]/.test(s) ? `"${s.replaceAll('"','""')}"` : s;
+}
+function cellsToCSV() {
+  if (!state.cells.length) return "";
+  const keys=Object.keys(state.cells[0]);
+  return keys.join(",")+"\n"+state.cells.map(r=>keys.map(k=>csvEscape(r[k])).join(",")).join("\n");
+}
+function downloadBlob(name,text,type) {
+  const blob=new Blob([text],{type});
+  const url=URL.createObjectURL(blob);
+  const a=document.createElement("a");
+  a.href=url;a.download=name;document.body.appendChild(a);a.click();a.remove();
+  setTimeout(()=>URL.revokeObjectURL(url),2000);
+}
+function exportGeometry() {
+  if (!state.records.length) return alert("No saved case geometry yet.");
+  downloadBlob("ithaca_case_geometry.json",JSON.stringify(state.records,null,2),"application/json");
+  if (state.cells.length) {
+    setTimeout(()=>downloadBlob("ithaca_cell_geometry.csv",cellsToCSV(),"text/csv"),400);
+  }
+  setStatus("exported");
+}
+$("exportBtn").onclick=exportGeometry;
+
+function saveLocalBackup() {
+  try {
+    localStorage.setItem("ithaca_geom_records_v1",JSON.stringify(state.records));
+    localStorage.setItem("ithaca_geom_cells_v1",JSON.stringify(state.cells));
+  } catch(e) {}
+}
+
+window.addEventListener("beforeunload", saveLocalBackup);
+
+updateLabels();
+resizeCanvas();
+})();
+</script>
+</body>
+</html>
