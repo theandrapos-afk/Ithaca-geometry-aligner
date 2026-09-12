@@ -3,7 +3,7 @@
 <head>
 <meta charset="utf-8">
 <meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover, user-scalable=no">
-<title>Ithaca Tablet Geometry Aligner v3</title>
+<title>Ithaca Tablet Geometry Aligner v4</title>
 <style>
   :root {
     --bg:#111;
@@ -121,7 +121,7 @@
     <button id="skipBtn" class="warn">Skip</button>
     <button id="saveNextBtn" class="primary">Save & Next</button>
   </div>
-  <div id="status">Choose JPG/PNG page images to begin. v3</div>
+  <div id="status">Choose JPG/PNG page images to begin. v4</div>
 </header>
 
 <div id="stageWrap">
@@ -160,7 +160,7 @@
       <button id="caseUp">Case ↑</button>
       <button id="caseDown">Case ↓</button>
       <button id="resetCase">Reset case</button>
-      <label class="small">Zoom</label>
+      <label class="small">Zoom (keeps setting)</label>
       <input id="zoomSlider" type="range" min="0.75" max="2.4" value="1" step="0.05">
       <button id="exportJsonBtn" class="good">Save JSON</button>
       <button id="exportCsvBtn">Save CSV</button>
@@ -183,6 +183,14 @@ const canvas = $("canvas");
 const ctx = canvas.getContext("2d", { alpha:false });
 const stageWrap = $("stageWrap");
 
+function loadSavedZoom() {
+  try {
+    const z = parseFloat(localStorage.getItem("ithaca_zoom_v4"));
+    if (Number.isFinite(z) && z >= 0.75 && z <= 2.4) return z;
+  } catch(e) {}
+  return 1;
+}
+
 const state = {
   files: [],
   fileIndex: 0,
@@ -201,7 +209,7 @@ const state = {
   boxWFrac: 0.90,
   boxHFrac: 1.10,
   enhanced: false,
-  zoom: 1,
+  zoom: loadSavedZoom(),
   panX: 0,
   panY: 0,
   records: [],
@@ -214,7 +222,7 @@ const state = {
 
 function setStatus(extra="") {
   if (!state.img) {
-    $("status").textContent = "Choose JPG/PNG page images to begin. v3";
+    $("status").textContent = "Choose JPG/PNG page images to begin. v4";
     return;
   }
   const a = ["R1C1","R1C5","R10C1","R10C5"];
@@ -280,10 +288,10 @@ function resetCase() {
   state.anchorMode=false;
   state.anchorStep=0;
   state.anchorHistory=[];
-  state.zoom=1;
+  // Keep the user's preferred zoom when resetting geometry.
   state.panX=0;
   state.panY=0;
-  $("zoomSlider").value="1";
+  $("zoomSlider").value=String(state.zoom);
   seedAnchors();
   updateLabels();
   draw();
@@ -512,8 +520,9 @@ async function loadCurrent() {
     state.colOffsets=Array(5).fill(0);
     state.selected=null;
     state.anchorMode=false; state.anchorStep=0; state.anchorHistory=[];
-    state.zoom=1; state.panX=0; state.panY=0;
-    $("zoomSlider").value="1";
+    // Preserve zoom across cases and pages; only recenter the view.
+    state.panX=0; state.panY=0;
+    $("zoomSlider").value=String(state.zoom);
     seedAnchors();
     setStatus();
     updateLabels();
@@ -583,7 +592,11 @@ $("caseUp").onclick=()=>{state.cropShiftY-=12; seedAnchors(); draw();};
 $("caseDown").onclick=()=>{state.cropShiftY+=12; seedAnchors(); draw();};
 $("resetCase").onclick=resetCase;
 
-$("zoomSlider").oninput=e=>{state.zoom=parseFloat(e.target.value); draw();};
+$("zoomSlider").oninput=e=>{
+  state.zoom=parseFloat(e.target.value);
+  try { localStorage.setItem("ithaca_zoom_v4", String(state.zoom)); } catch(err) {}
+  draw();
+};
 
 function updateLabels() {
   $("selectedLabel").textContent=state.selected ? `R${state.selected[0]+1}C${state.selected[1]+1}` : "No cell selected";
@@ -706,7 +719,7 @@ async function saveOrShareFile(name,text,type) {
 async function exportJson() {
   if (!state.records.length) return alert("No saved case geometry yet.");
   const payload={
-    format:"ithaca-geometry-v3",
+    format:"ithaca-geometry-v4",
     exported_at:new Date().toISOString(),
     cases:state.records,
     cells:state.cells
@@ -739,6 +752,7 @@ function saveLocalBackup() {
 
 window.addEventListener("beforeunload", saveLocalBackup);
 
+$("zoomSlider").value=String(state.zoom);
 updateLabels();
 resizeCanvas();
 })();
