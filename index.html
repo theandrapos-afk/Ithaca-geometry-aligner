@@ -3,7 +3,7 @@
 <head>
 <meta charset="utf-8">
 <meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover, user-scalable=no">
-<title>Ithaca Tablet Geometry Aligner v4</title>
+<title>Ithaca Tablet Geometry Aligner v5</title>
 <style>
   :root {
     --bg:#111;
@@ -162,8 +162,7 @@
       <button id="resetCase">Reset case</button>
       <label class="small">Zoom (keeps setting)</label>
       <input id="zoomSlider" type="range" min="0.75" max="2.4" value="1" step="0.05">
-      <button id="exportJsonBtn" class="good">Save JSON</button>
-      <button id="exportCsvBtn">Save CSV</button>
+      <button id="exportGeometryBtn" class="good">Save Geometry</button>
     </div>
   </div>
 </div>
@@ -185,7 +184,9 @@ const stageWrap = $("stageWrap");
 
 function loadSavedZoom() {
   try {
-    const z = parseFloat(localStorage.getItem("ithaca_zoom_v4"));
+    let raw = localStorage.getItem("ithaca_zoom_v5");
+    if (raw === null) raw = localStorage.getItem("ithaca_zoom_v4");
+    const z = parseFloat(raw);
     if (Number.isFinite(z) && z >= 0.75 && z <= 2.4) return z;
   } catch(e) {}
   return 1;
@@ -505,8 +506,8 @@ function naturalCompare(a,b) {
 async function loadCurrent() {
   if (!state.files.length) return;
   if (state.fileIndex>=state.files.length) {
-    setStatus("finished — tap Save JSON and/or Save CSV below");
-    alert("All selected pages are complete. Use the visible Save JSON or Save CSV buttons below.");
+    setStatus("finished — tap Save Geometry below");
+    alert("All selected pages are complete. Tap Save Geometry below to save the combined JSON file.");
     return;
   }
   const file=state.files[state.fileIndex];
@@ -594,7 +595,7 @@ $("resetCase").onclick=resetCase;
 
 $("zoomSlider").oninput=e=>{
   state.zoom=parseFloat(e.target.value);
-  try { localStorage.setItem("ithaca_zoom_v4", String(state.zoom)); } catch(err) {}
+  try { localStorage.setItem("ithaca_zoom_v5", String(state.zoom)); } catch(err) {}
   draw();
 };
 
@@ -673,15 +674,6 @@ $("prevBtn").onclick=async()=>{
   await loadCurrent();
 };
 
-function csvEscape(v) {
-  const s=String(v??"");
-  return /[",\n]/.test(s) ? `"${s.replaceAll('"','""')}"` : s;
-}
-function cellsToCSV() {
-  if (!state.cells.length) return "";
-  const keys=Object.keys(state.cells[0]);
-  return keys.join(",")+"\n"+state.cells.map(r=>keys.map(k=>csvEscape(r[k])).join(",")).join("\n");
-}
 function downloadBlob(name,text,type) {
   const blob=new Blob([text],{type});
   const url=URL.createObjectURL(blob);
@@ -716,37 +708,34 @@ async function saveOrShareFile(name,text,type) {
   setStatus(`${name} download requested`);
 }
 
-async function exportJson() {
+async function exportGeometry() {
   if (!state.records.length) return alert("No saved case geometry yet.");
   const payload={
-    format:"ithaca-geometry-v4",
+    format:"ithaca-geometry-v5",
     exported_at:new Date().toISOString(),
+    export_type:"combined_geometry",
+    includes:{
+      case_alignment:true,
+      cell_centers:true,
+      cell_crop_bounds:true,
+      cell_quadrilaterals:true
+    },
     cases:state.records,
     cells:state.cells
   };
   await saveOrShareFile(
-    "ithaca_geometry.json",
+    "ithaca_geometry_v5.json",
     JSON.stringify(payload,null,2),
     "application/json"
   );
 }
 
-async function exportCsv() {
-  if (!state.cells.length) return alert("No saved cell geometry yet.");
-  await saveOrShareFile(
-    "ithaca_cell_geometry.csv",
-    cellsToCSV(),
-    "text/csv"
-  );
-}
-
-$("exportJsonBtn").onclick=exportJson;
-$("exportCsvBtn").onclick=exportCsv;
+$("exportGeometryBtn").onclick=exportGeometry;
 
 function saveLocalBackup() {
   try {
-    localStorage.setItem("ithaca_geom_records_v1",JSON.stringify(state.records));
-    localStorage.setItem("ithaca_geom_cells_v1",JSON.stringify(state.cells));
+    localStorage.setItem("ithaca_geom_records_v5",JSON.stringify(state.records));
+    localStorage.setItem("ithaca_geom_cells_v5",JSON.stringify(state.cells));
   } catch(e) {}
 }
 
