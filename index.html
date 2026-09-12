@@ -3,7 +3,7 @@
 <head>
 <meta charset="utf-8">
 <meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover, user-scalable=no">
-<title>Ithaca Tablet Geometry Aligner v5</title>
+<title>Ithaca Tablet Geometry Aligner v5.1</title>
 <style>
   :root {
     --bg:#111;
@@ -110,9 +110,6 @@
   <div class="row">
     <button id="chooseBtn" class="primary">Choose Page Images</button>
     <input id="fileInput" type="file" accept="image/png,image/jpeg,image/webp,.png,.jpg,.jpeg,.webp" multiple>
-    <label>Start case</label>
-    <input id="startCase" type="number" value="1049" min="1">
-    <button id="applyCaseBtn">Apply</button>
     <button id="anchorBtn" class="good">Set 4 Anchors</button>
     <button id="undoAnchorBtn">Undo Anchor</button>
     <button id="enhanceBtn">Enhance</button>
@@ -196,7 +193,7 @@ const state = {
   files: [],
   fileIndex: 0,
   caseSlot: 0,
-  caseNumber: 1049,
+  caseNumber: null,
   img: null,
   imageName: "",
   cropShiftY: 0,
@@ -230,7 +227,7 @@ function setStatus(extra="") {
   const prompt = state.anchorMode ? ` — tap ${a[state.anchorStep]} center` : "";
   $("status").innerHTML =
     `Page <b>${state.fileIndex+1}/${state.files.length}</b>: ${escapeHtml(state.imageName)} — ` +
-    `Case <b>${state.caseNumber}</b> (slot ${state.caseSlot+1}/4)` +
+    `Case slot <b>${state.caseSlot+1}/4</b>` +
     `${state.enhanced ? " — enhanced" : ""}${prompt}${extra ? " — "+extra : ""}`;
 }
 
@@ -494,7 +491,7 @@ $("fileInput").addEventListener("change", async e => {
   state.files=[...e.target.files].sort((a,b)=>naturalCompare(a.name,b.name));
   if (!state.files.length) return;
   state.fileIndex=0; state.caseSlot=0;
-  state.caseNumber=parseInt($("startCase").value||"1",10);
+  state.caseNumber=null;
   state.records=[]; state.cells=[];
   await loadCurrent();
 });
@@ -537,12 +534,6 @@ async function loadCurrent() {
   img.src=url;
 }
 
-$("applyCaseBtn").onclick=() => {
-  const n=parseInt($("startCase").value||"",10);
-  if (!Number.isFinite(n)) return alert("Enter a valid case number.");
-  state.caseNumber=n;
-  setStatus();
-};
 
 $("anchorBtn").onclick=() => {
   if (!state.img) return;
@@ -612,7 +603,8 @@ function saveCurrent(status="aligned") {
     source_file:state.imageName,
     page_index:state.fileIndex,
     case_slot:state.caseSlot+1,
-    case_number:state.caseNumber,
+    case_number:null,
+    case_slot_label:`slot-${state.caseSlot+1}`,
     status,
     crop_shift_y_px:state.cropShiftY,
     crop_box:[crop.x0,crop.y0,crop.x1,crop.y1],
@@ -637,7 +629,8 @@ function saveCurrent(status="aligned") {
           source_file:state.imageName,
           page_index:state.fileIndex,
           case_slot:state.caseSlot+1,
-          case_number:state.caseNumber,
+          case_number:null,
+          case_slot_label:`slot-${state.caseSlot+1}`,
           row:r+1,column:c+1,
           center_x:+gx.toFixed(2), center_y:+gy.toFixed(2),
           crop_x0:+Math.min(...qxs).toFixed(2), crop_y0:+Math.min(...qys).toFixed(2),
@@ -654,8 +647,6 @@ function saveCurrent(status="aligned") {
 }
 
 async function advance() {
-  state.caseNumber++;
-  $("startCase").value=state.caseNumber;
   state.caseSlot++;
   if (state.caseSlot>=4) {state.caseSlot=0; state.fileIndex++;}
   await loadCurrent();
@@ -667,8 +658,6 @@ $("skipBtn").onclick=async()=>{saveCurrent("skipped"); await advance();};
 $("prevBtn").onclick=async()=>{
   if (!state.img) return;
   if (state.anchorHistory.length && !confirm("Go to the previous case? Current unsaved anchor edits will be discarded. Use Undo Anchor if you only need to correct a corner.")) return;
-  state.caseNumber=Math.max(1,state.caseNumber-1);
-  $("startCase").value=state.caseNumber;
   if (state.caseSlot>0) state.caseSlot--;
   else if (state.fileIndex>0) {state.fileIndex--;state.caseSlot=3;}
   await loadCurrent();
@@ -711,9 +700,11 @@ async function saveOrShareFile(name,text,type) {
 async function exportGeometry() {
   if (!state.records.length) return alert("No saved case geometry yet.");
   const payload={
-    format:"ithaca-geometry-v5",
+    format:"ithaca-geometry-v5.1",
     exported_at:new Date().toISOString(),
     export_type:"combined_geometry",
+    case_identification:"neutral_slots_only",
+    note:"Real case numbers are assigned later from shipment/page metadata; tablet alignment does not require manual case-number entry.",
     includes:{
       case_alignment:true,
       cell_centers:true,
@@ -724,7 +715,7 @@ async function exportGeometry() {
     cells:state.cells
   };
   await saveOrShareFile(
-    "ithaca_geometry_v5.json",
+    "ithaca_geometry_v5_1.json",
     JSON.stringify(payload,null,2),
     "application/json"
   );
@@ -734,8 +725,8 @@ $("exportGeometryBtn").onclick=exportGeometry;
 
 function saveLocalBackup() {
   try {
-    localStorage.setItem("ithaca_geom_records_v5",JSON.stringify(state.records));
-    localStorage.setItem("ithaca_geom_cells_v5",JSON.stringify(state.cells));
+    localStorage.setItem("ithaca_geom_records_v5_1",JSON.stringify(state.records));
+    localStorage.setItem("ithaca_geom_cells_v5_1",JSON.stringify(state.cells));
   } catch(e) {}
 }
 
